@@ -85,8 +85,7 @@ try:
     DYDX_ADDRESS = os.getenv("DYDX_ADDRESS") 
  
     if not PRIVATE_KEY or not DYDX_ADDRESS: 
-        raise ValueError("FATAL: Variáveis de ambiente DYDX_PRIVATE_KEY e 
-DYDX_ADDRESS não foram definidas.") 
+        raise ValueError("FATAL: Variáveis de ambiente DYDX_PRIVATE_KEY e DYDX_ADDRESS não foram definidas.") 
  
 
 
@@ -130,23 +129,20 @@ class DydxClient:
                 {'market': 'SOL-USD', 'side': 'BUY', 'size': '10.5', 'subaccountId': 128}, 
                 {'market': 'LINK-USD', 'side': 'SELL', 'size': '50.0', 'subaccountId': 129} 
             ] 
-            logger.info(f"SUCESSO (Simulação): Encontradas {len(simulated_positions)} posições 
-abertas: {simulated_positions}") 
+            logger.info(f"SUCESSO (Simulação): Encontradas {len(simulated_positions)} posições abertas: {simulated_positions}") 
             return simulated_positions 
         except Exception as e: 
 
 
 
-            logger.error(f"ERRO ao buscar posições abertas no Indexer para o endereço 
-{DYDX_ADDRESS}.", exc_info=True) 
+            logger.error(f"ERRO ao buscar posições abertas no Indexer para o endereço {DYDX_ADDRESS}.", exc_info=True) 
             return [] 
  
     def get_account_balance(self): 
         logger.info(f"Consultando saldo disponível da conta {DYDX_ADDRESS}...") 
         try: 
             simulated_balance = 1000.0 
-            logger.info(f"SUCESSO (Simulação): Saldo disponível de ${simulated_balance:.2f} 
-USDC.") 
+            logger.info(f"SUCESSO (Simulação): Saldo disponível de ${simulated_balance:.2f} USDC.") 
             return simulated_balance 
         except Exception as e: 
             logger.error(f"ERRO ao buscar saldo da conta {DYDX_ADDRESS}.", exc_info=True) 
@@ -177,14 +173,12 @@ USDC.")
                    f"  - Reduce Only: {reduce_only}") 
         logger.info(log_msg) 
         try: 
-            logger.warning(f"--- MODO DE SIMULAÇÃO: A ordem para {ticker} NÃO será realmente 
-enviada. ---") 
+            logger.warning(f"--- MODO DE SIMULAÇÃO: A ordem para {ticker} NÃO será realmente enviada. ---") 
             tx_hash = f"simulated_tx_{ticker}_{subaccount_id}" 
 
 
 
-            logger.info(f"SUCESSO (Simulação): Ordem para {ticker} processada com sucesso. Tx 
-Hash: {tx_hash}") 
+            logger.info(f"SUCESSO (Simulação): Ordem para {ticker} processada com sucesso. Tx Hash: {tx_hash}") 
             return {"status": "success", "tx_hash": tx_hash} 
         except Exception as e: 
             logger.error(f"FALHA CRÍTICA ao enviar ordem para {ticker}.", exc_info=True) 
@@ -210,8 +204,7 @@ def parse_signal(signal_text):
         action_map = {"COMPRAR": "BUY", "VENDER": "SELL", "FECHAR": "CLOSE"} 
          
         if ticker not in SUPPORTED_TICKERS: 
-            logger.warning(f"  -> FALHA no parse: Ticker '{ticker}' no sinal '{signal_text}' não é 
-suportado. Ignorando.") 
+            logger.warning(f"  -> FALHA no parse: Ticker '{ticker}' no sinal '{signal_text}' não é suportado. Ignorando.") 
             return None 
              
         if action_str in action_map: 
@@ -219,8 +212,7 @@ suportado. Ignorando.")
             logger.info(f"  -> SUCESSO no parse: Sinal '{signal_text}' validado como {result}.") 
             return result 
          
-        logger.warning(f"  -> FALHA no parse: Ação '{action_str}' no sinal '{signal_text}' é 
-desconhecida. Ignorando.") 
+        logger.warning(f"  -> FALHA no parse: Ação '{action_str}' no sinal '{signal_text}' é desconhecida. Ignorando.") 
         return None 
     except Exception as e: 
         logger.error(f"  -> ERRO inesperado ao parsear o sinal '{signal_text}'.", exc_info=True) 
@@ -230,19 +222,16 @@ def process_signals(signals):
 
 
 
-    logger.info("\n================ INICIANDO CICLO DE PROCESSAMENTO DE SINAIS 
-================") 
+    logger.info("\n================ INICIANDO CICLO DE PROCESSAMENTO DE SINAIS ================") 
     client = DydxClient() 
      
     logger.info(f"--- Início da Validação de {len(signals)} Sinais Brutos ---") 
     parsed_signals = [parse_signal(s) for s in signals if s] 
     parsed_signals = [s for s in parsed_signals if s is not None] # Remove os nulos 
-    logger.info(f"--- Fim da Validação: {len(parsed_signals)} sinais foram validados com sucesso. 
-{len(signals) - len(parsed_signals)} foram ignorados. ---") 
+    logger.info(f"--- Fim da Validação: {len(parsed_signals)} sinais foram validados com sucesso. {len(signals) - len(parsed_signals)} foram ignorados. ---") 
  
     if not parsed_signals: 
-        logger.warning("Nenhum sinal válido foi encontrado para processamento. Encerrando 
-ciclo.") 
+        logger.warning("Nenhum sinal válido foi encontrado para processamento. Encerrando ciclo.") 
         return 
  
     # --- ETAPA 1: PROTOCOLO DE RESET DE SEGURANÇA --- 
@@ -250,10 +239,8 @@ ciclo.")
     try: 
         open_positions = client.get_open_positions() 
         tickers_in_today_signals = {s['ticker'] for s in parsed_signals} 
-        logger.info(f"Contexto para o Reset: Posições abertas encontradas: {[p['market'] for p in 
-open_positions]}") 
-        logger.info(f"Contexto para o Reset: Tickers nos sinais de hoje: 
-{list(tickers_in_today_signals)}") 
+        logger.info(f"Contexto para o Reset: Posições abertas encontradas: {[p['market'] for p in open_positions]}") 
+        logger.info(f"Contexto para o Reset: Tickers nos sinais de hoje: {list(tickers_in_today_signals)}") 
          
         positions_to_close_count = 0 
         for position in open_positions: 
@@ -262,13 +249,11 @@ open_positions]}")
              
             if pos_ticker not in tickers_in_today_signals: 
                 positions_to_close_count += 1 
-                logger.warning(f"  -> DECISÃO: FECHAR {pos_ticker}. MOTIVO: Posição não faz 
-parte dos sinais de hoje.") 
+                logger.warning(f"  -> DECISÃO: FECHAR {pos_ticker}. MOTIVO: Posição não faz parte dos sinais de hoje.") 
                  
                 market_price = client.get_market_bbo_price(pos_ticker) 
                 if not market_price: 
-                    logger.error(f"  -> FALHA: Não foi possível obter preço para fechar {pos_ticker}. 
-Fechamento abortado para este ativo.") 
+                    logger.error(f"  -> FALHA: Não foi possível obter preço para fechar {pos_ticker}. Fechamento abortado para este ativo.") 
                     continue 
  
                 side_to_close = "BUY" if position['side'] == "SELL" else "SELL" 
@@ -280,8 +265,7 @@ Fechamento abortado para este ativo.")
                     price=market_price, subaccount_id=int(position['subaccountId']), reduce_only=True 
                 ) 
             else: 
-                logger.info(f"  -> DECISÃO: MANTER {pos_ticker}. MOTIVO: Ativo está presente nos 
-sinais de hoje.") 
+                logger.info(f"  -> DECISÃO: MANTER {pos_ticker}. MOTIVO: Ativo está presente nos sinais de hoje.") 
          
         if positions_to_close_count == 0: 
             logger.info("Nenhuma posição aberta necessitou de fechamento obrigatório.") 
@@ -295,10 +279,8 @@ sinais de hoje.")
     new_trade_signals = [s for s in parsed_signals if s['action'] in ["BUY", "SELL"]] 
      
     if not new_trade_signals: 
-        logger.info("Nenhum novo sinal de COMPRA/VENDA para executar. Apenas sinais de 
-FECHAR ou de manutenção foram processados.") 
-        logger.info("====================== CICLO DE PROCESSAMENTO CONCLUÍDO 
-======================") 
+        logger.info("Nenhum novo sinal de COMPRA/VENDA para executar. Apenas sinais de FECHAR ou de manutenção foram processados.") 
+        logger.info("====================== CICLO DE PROCESSAMENTO CONCLUÍDO ======================") 
         return 
  
     try: 
@@ -311,13 +293,11 @@ FECHAR ou de manutenção foram processados.")
             logger.info("--- Início do Cálculo de Alocação de Margem ---") 
             logger.info(f"  - Saldo Total Disponível: ${account_balance:.2f}") 
             logger.info(f"  - Número Total de Sinais Válidos: {total_signals_for_allocation}") 
-            logger.info(f"  - Cálculo: ${account_balance:.2f} / {total_signals_for_allocation} = 
-${margin_per_trade:.2f}") 
+            logger.info(f"  - Cálculo: ${account_balance:.2f} / {total_signals_for_allocation} = ${margin_per_trade:.2f}") 
             logger.info(f"  - Margem Base por Nova Operação: ${margin_per_trade:.2f}") 
             logger.info("--- Fim do Cálculo de Alocação de Margem ---") 
         else: 
-            logger.warning("Nenhum sinal válido para basear a alocação de margem. Novas 
-posições não serão abertas.") 
+            logger.warning("Nenhum sinal válido para basear a alocação de margem. Novas posições não serão abertas.") 
  
         open_positions = client.get_open_positions() 
         used_subaccounts = {int(p.get('subaccountId', 0)) for p in open_positions} 
@@ -326,14 +306,12 @@ posições não serão abertas.")
 
         next_available_subaccount = ISOLATED_MARGIN_SUBACCOUNT_START_ID 
          
-        logger.info(f"\nIniciando processamento de {len(new_trade_signals)} novas operações de 
-COMPRA/VENDA...") 
+        logger.info(f"\nIniciando processamento de {len(new_trade_signals)} novas operações de COMPRA/VENDA...") 
         for signal in new_trade_signals: 
             ticker = signal['ticker'] 
             logger.info(f"--- Processando sinal de ABERTURA para {ticker} ---") 
              
-            logger.info(f"  - Procurando subconta livre a partir de ID {next_available_subaccount} 
-(usadas: {used_subaccounts})...") 
+            logger.info(f"  - Procurando subconta livre a partir de ID {next_available_subaccount} (usadas: {used_subaccounts})...") 
             while next_available_subaccount in used_subaccounts: 
                 next_available_subaccount += 1 
             subaccount_id = next_available_subaccount 
@@ -350,10 +328,8 @@ COMPRA/VENDA...")
             logger.info(f"  - Calculando tamanho da ordem para {ticker}:") 
             position_value_usd = margin_per_trade * leverage 
             order_size_in_asset = position_value_usd / price 
-            logger.info(f"    - Margem: ${margin_per_trade:.2f} * Alavancagem: {leverage}x = Valor 
-Nocional de ${position_value_usd:.2f}") 
-            logger.info(f"    - Valor Nocional: ${position_value_usd:.2f} / Preço do Ativo: ${price:.2f} = 
-Tamanho de {order_size_in_asset:.6f} {ticker}") 
+            logger.info(f"    - Margem: ${margin_per_trade:.2f} * Alavancagem: {leverage}x = Valor Nocional de ${position_value_usd:.2f}") 
+            logger.info(f"    - Valor Nocional: ${position_value_usd:.2f} / Preço do Ativo: ${price:.2f} = Tamanho de {order_size_in_asset:.6f} {ticker}") 
              
             client.place_order( 
                 ticker=ticker, side=signal['action'], size=order_size_in_asset, 
@@ -361,11 +337,9 @@ Tamanho de {order_size_in_asset:.6f} {ticker}")
             ) 
  
     except Exception as e: 
-        logger.critical("ERRO CRÍTICO durante a Abertura e Gerenciamento de Posições.", 
-exc_info=True) 
+        logger.critical("ERRO CRÍTICO durante a Abertura e Gerenciamento de Posições.", exc_info=True) 
  
-    logger.info("\n====================== CICLO DE PROCESSAMENTO CONCLUÍDO 
-======================") 
+    logger.info("\n====================== CICLO DE PROCESSAMENTO CONCLUÍDO ======================") 
  
  
 
