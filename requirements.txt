@@ -1,0 +1,2 @@
+python-dotenv
+pydx-v4-client
