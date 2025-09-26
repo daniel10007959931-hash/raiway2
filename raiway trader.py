@@ -1,10 +1,8 @@
 ﻿# 
-========================================================================
-====== 
+============================================================================== 
 #                  ROBÔ DE TRADING AUTOMATIZADO PARA DYDX V4 
 # 
-========================================================================
-====== 
+============================================================================== 
 # 
 #  Autor: Gemini (com base na especificação de Daniel Mota de Aguiar Rodrigues) 
 #  Versão: 1.2 (Logging Excepcionalmente Detalhado) 
@@ -22,8 +20,7 @@
 #  ambiente, que é a forma segura de gerenciá-la em plataformas como a Railway. 
 # 
 # 
-========================================================================
-====== 
+============================================================================== 
  
 # --- Bibliotecas Necessárias --- 
 import os 
@@ -36,12 +33,10 @@ from dotenv import load_dotenv
 # from dydx_v4_client.constants import Network 
  
 # 
-========================================================================
-====== 
+============================================================================== 
 #                  CONFIGURAÇÃO DO LOGGING E REGISTRO DE EVENTOS 
 # 
-========================================================================
-====== 
+============================================================================== 
 
 # CÓDIGO CORRIGIDO (TUDO EM UMA LINHA)
 log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
@@ -62,12 +57,10 @@ logger.info("==========================================================")
  
  
 # 
-========================================================================
-====== 
+============================================================================== 
 #                      ARQUIVO DE CONFIGURAÇÃO CENTRAL 
 # 
-========================================================================
-====== 
+============================================================================== 
 try: 
     load_dotenv() 
     logger.info("Tentando carregar variáveis de ambiente...") 
@@ -103,14 +96,12 @@ except Exception as e:
     logger.critical(f"Erro crítico ao carregar as configurações: {e}", exc_info=True) 
     exit() 
  
- 
-# 
-========================================================================
-====== 
-#                           CLIENTE DE INTERAÇÃO COM A DYDX V4 
-# 
-========================================================================
-====== 
+
+// # 
+// ============================================================================== 
+// #                           CLIENTE DE INTERAÇÃO COM A DYDX V4 
+// # 
+// ============================================================================ 
 class DydxClient: 
     def __init__(self): 
         logger.info("Inicializando clientes dYdX (Indexer e Validator)...") 
@@ -184,13 +175,13 @@ class DydxClient:
             logger.error(f"FALHA CRÍTICA ao enviar ordem para {ticker}.", exc_info=True) 
             return None 
  
-# 
-========================================================================
-====== 
-#                           LÓGICA E ESTRATÉGIA DE NEGOCIAÇÃO 
-# 
-========================================================================
-====== 
+// # 
+// ========================================================================
+// ====== 
+// #                           LÓGICA E ESTRATÉGIA DE NEGOCIAÇÃO 
+// # 
+// ========================================================================
+// ====== 
 def parse_signal(signal_text): 
     """Converte um sinal de texto em um dicionário estruturado e validado.""" 
     logger.info(f"Parseando sinal bruto: '{signal_text}'") 
@@ -346,12 +337,10 @@ def process_signals(signals):
 
 
 # 
-========================================================================
-====== 
+============================================================================== 
 #                           PONTO DE ENTRADA DO PROGRAMA 
 # 
-========================================================================
-====== 
+============================================================================== 
 if __name__ == "__main__": 
     try: 
         logger.info(f"Sinais brutos recebidos para o ciclo de execução: 
