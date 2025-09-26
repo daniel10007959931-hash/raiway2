@@ -43,10 +43,9 @@ from dotenv import load_dotenv
 ========================================================================
 ====== 
 
+# CÓDIGO CORRIGIDO (TUDO EM UMA LINHA)
+log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 
-
-log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - 
-%(message)s') 
 log_file_handler = RotatingFileHandler('trading_bot.log', maxBytes=5*1024*1024, 
 backupCount=2) 
 log_file_handler.setFormatter(log_formatter) 
