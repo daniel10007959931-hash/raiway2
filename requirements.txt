@@ -1,2 +1,2 @@
 python-dotenv
-pydx-v4-client
+dydx-v4-client
