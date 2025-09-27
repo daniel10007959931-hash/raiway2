@@ -3,31 +3,32 @@
 # ==============================================================================
 #
 #  Autor: Gemini (com base na especificação de Daniel Mota de Aguiar Rodrigues)
-#  Versão: 1.3 (Sintaxe Corrigida e Padronizada)
+#  Versão: 2.0 (MODO DE OPERAÇÃO REAL)
 #  Data: 26/09/2025
 #
 #  Descrição:
 #  Este script executa uma estratégia de trading automatizada na dYdX v4.
-#  Ele foi projetado para ser implantado em plataformas de nuvem e utiliza
-#  práticas de segurança para o gerenciamento de chaves e logging robusto
-#  para facilitar a depuração e auditoria.
+#  Ele interage diretamente com a blockchain para executar ordens reais.
 #
 #  AVISO DE SEGURANÇA CRÍTICO:
-#  NUNCA exponha sua chave privada (PRIVATE_KEY) diretamente no código.
-#  Este script foi projetado para carregar a chave de uma variável de
-#  ambiente, que é a forma segura de gerenciá-la.
+#  Este robô opera com fundos reais. Use por sua conta e risco.
+#  Sua chave privada é carregada de uma variável de ambiente para segurança.
 #
 # ==============================================================================
 
 # --- Bibliotecas Necessárias ---
 import os
 import logging
+import time
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
-# Descomente as linhas abaixo quando a biblioteca dydx-v4-client estiver instalada
-# from dydx_v4_client import IndexerClient, ValidatorClient
-# from dydx_v4_client.constants import Network
+# ALTERAÇÃO: Descomentando as bibliotecas reais da dYdX
+from dydx_v4_client import IndexerClient, ValidatorClient
+from dydx_v4_client.constants import Network
+from dydx_v4_client.constants import ORDER_SIDE_BUY, ORDER_SIDE_SELL
+from dydx_v4_client.constants import ORDER_TYPE_LIMIT
+from dydx_v4_client.constants import TIME_IN_FORCE_IOC
 
 # ==============================================================================
 #                  CONFIGURAÇÃO DO LOGGING E REGISTRO DE EVENTOS
@@ -60,8 +61,8 @@ try:
         "ETH FECHAR",
         "SOL COMPRAR",
         "DOGE FECHAR",
-        "LINK COMPRAR",  # Ticker não suportado para teste de log
-        "XRP VOAR",      # Ação inválida para teste de log
+        "LINK COMPRAR",
+        "XRP VOAR",
     ]
 
     PRIVATE_KEY = os.getenv("DYDX_PRIVATE_KEY")
@@ -70,14 +71,14 @@ try:
     if not PRIVATE_KEY or not DYDX_ADDRESS:
         raise ValueError("FATAL: Variáveis de ambiente DYDX_PRIVATE_KEY e DYDX_ADDRESS não foram definidas.")
 
-    RPC_ENDPOINT = "https://dydx-mainnet-full-rpc.public.blastapi.io"
-    INDEXER_ENDPOINT = "https://indexer.dydx.trade/v4"
+    # ALTERAÇÃO: Network agora é configurado aqui
+    NETWORK = Network.mainnet()
 
     LEVERAGE_CONFIG = {"BTC": 3.0, "DEFAULT": 1.0}
     SUPPORTED_TICKERS = ["BTC", "ETH", "SOL", "DOGE"]
-    ISOLATED_MARGIN_SUBACCOUNT_START_ID = 128
+    ISOLATED_MARGIN_SUBACCOUNT_START_ID = 1
 
-    logger.info("Configurações carregadas com sucesso.")
+    logger.info("Configurações carregadas com sucesso para a rede MAINNET.")
 
 except Exception as e:
     logger.critical(f"Erro crítico ao carregar as configurações: {e}", exc_info=True)
@@ -91,9 +92,10 @@ class DydxClient:
     def __init__(self):
         logger.info("Inicializando clientes dYdX (Indexer e Validator)...")
         try:
-            self.indexer_client = None
-            self.validator_client = None
-            logger.info("Clientes dYdX prontos para uso (MODO SIMULADO).")
+            # ALTERAÇÃO: Inicialização dos clientes reais
+            self.indexer_client = IndexerClient(config=NETWORK.indexer_config)
+            self.validator_client = ValidatorClient(config=NETWORK.validator_config, private_key=PRIVATE_KEY)
+            logger.info("Clientes dYdX prontos para uso (MODO REAL).")
         except Exception as e:
             logger.critical("Falha ao inicializar os clientes dYdX.", exc_info=True)
             raise
@@ -101,55 +103,84 @@ class DydxClient:
     def get_open_positions(self):
         logger.info(f"Consultando posições abertas para o endereço {DYDX_ADDRESS}...")
         try:
-            simulated_positions = [
-                {'market': 'SOL-USD', 'side': 'BUY', 'size': '10.5', 'subaccountId': 128},
-                {'market': 'LINK-USD', 'side': 'SELL', 'size': '50.0', 'subaccountId': 129}
+            # ALTERAÇÃO: Chamada real para buscar posições
+            response = self.indexer_client.account.get_perpetual_positions_v4(address=DYDX_ADDRESS)
+            positions = response.positions
+            formatted_positions = [
+                {
+                    'market': p.market,
+                    'side': p.side,
+                    'size': p.size,
+                    'subaccountId': p.subaccount_id
+                }
+                for p in positions
             ]
-            logger.info(f"SUCESSO (Simulação): Encontradas {len(simulated_positions)} posições abertas: {simulated_positions}")
-            return simulated_positions
+            logger.info(f"SUCESSO: Encontradas {len(formatted_positions)} posições abertas.")
+            return formatted_positions
         except Exception as e:
             logger.error(f"ERRO ao buscar posições abertas no Indexer para o endereço {DYDX_ADDRESS}.", exc_info=True)
             return []
 
     def get_account_balance(self):
-        logger.info(f"Consultando saldo disponível da conta {DYDX_ADDRESS}...")
+        logger.info(f"Consultando saldo disponível da conta principal (Subconta 0)...")
         try:
-            simulated_balance = 1000.0
-            logger.info(f"SUCESSO (Simulação): Saldo disponível de ${simulated_balance:.2f} USDC.")
-            return simulated_balance
+            # ALTERAÇÃO: Chamada real para buscar dados da subconta principal
+            # O saldo usado para margem é o `quote_balance`
+            response = self.indexer_client.account.get_subaccount_v4(address=DYDX_ADDRESS, subaccount_number=0)
+            balance = float(response.subaccount.quote_balance)
+            logger.info(f"SUCESSO: Saldo disponível de ${balance:.2f} USDC.")
+            return balance
         except Exception as e:
             logger.error(f"ERRO ao buscar saldo da conta {DYDX_ADDRESS}.", exc_info=True)
             return 0.0
 
-    def get_market_bbo_price(self, ticker):
-        logger.info(f"Buscando preço de mercado (BBO) para {ticker}-USD...")
+    def get_market_oracle_price(self, ticker):
+        logger.info(f"Buscando preço de mercado (Oracle) para {ticker}-USD...")
         try:
-            prices = {"BTC": 68500.0, "ETH": 3550.0, "SOL": 152.50, "DOGE": 0.16, "LINK": 18.0}
-            price = prices.get(ticker)
-            if price:
-                logger.info(f"SUCESSO (Simulação): Preço BBO para {ticker} é ${price:.2f}.")
-                return price
-            else:
-                raise ValueError(f"Preço para ticker '{ticker}' não encontrado na simulação.")
+            # ALTERAÇÃO: Chamada real para buscar o preço via Oracle
+            market_id = f"{ticker}-USD"
+            response = self.indexer_client.markets.get_perpetual_market_v4(market=market_id)
+            price = float(response.market.oracle_price)
+            logger.info(f"SUCESSO: Preço Oracle para {ticker} é ${price:.2f}.")
+            return price
         except Exception as e:
             logger.error(f"ERRO ao buscar preço de mercado para {ticker}.", exc_info=True)
             return None
 
     def place_order(self, ticker, side, size, price, subaccount_id, reduce_only=False):
+        market_id = f"{ticker}-USD"
+        order_side = ORDER_SIDE_BUY if side == "BUY" else ORDER_SIDE_SELL
         action_type = "FECHAMENTO" if reduce_only else "ABERTURA"
-        log_msg = (f"Preparando ordem de {action_type} para envio:\n"
-                   f"  - Ativo: {ticker}-USD\n"
+        
+        # O cliente exige que size e price sejam strings
+        size_str = str(size)
+        price_str = str(price)
+
+        log_msg = (f"Preparando ordem de {action_type} REAL para envio:\n"
+                   f"  - Ativo: {market_id}\n"
                    f"  - Lado: {side}\n"
-                   f"  - Tamanho: {size:.6f}\n"
-                   f"  - Preço Limite (BBO): ${price:.4f}\n"
+                   f"  - Tamanho: {size_str}\n"
+                   f"  - Preço Limite: ${price_str}\n"
                    f"  - Subconta (Isolada): {subaccount_id}\n"
                    f"  - Reduce Only: {reduce_only}")
         logger.info(log_msg)
         try:
-            logger.warning(f"--- MODO DE SIMULAÇÃO: A ordem para {ticker} NÃO será realmente enviada. ---")
-            tx_hash = f"simulated_tx_{ticker}_{subaccount_id}"
-            logger.info(f"SUCESSO (Simulação): Ordem para {ticker} processada com sucesso. Tx Hash: {tx_hash}")
-            return {"status": "success", "tx_hash": tx_hash}
+            # ALTERAÇÃO: Envio de ordem real
+            client_id = int(time.time() * 1000) # ID de cliente único baseado no timestamp
+
+            tx = self.validator_client.post.place_order(
+                subaccount_id=subaccount_id,
+                market=market_id,
+                type=ORDER_TYPE_LIMIT,
+                side=order_side,
+                size=size_str,
+                price=price_str,
+                client_id=client_id,
+                time_in_force=TIME_IN_FORCE_IOC, # Immediate-Or-Cancel
+                reduce_only=reduce_only,
+            )
+            logger.info(f"SUCESSO: Ordem para {ticker} enviada com sucesso. Tx Hash: {tx.tx_hash}")
+            return {"status": "success", "tx_hash": tx.tx_hash}
         except Exception as e:
             logger.error(f"FALHA CRÍTICA ao enviar ordem para {ticker}.", exc_info=True)
             return None
@@ -157,6 +188,8 @@ class DydxClient:
 # ==============================================================================
 #                           LÓGICA E ESTRATÉGIA DE NEGOCIAÇÃO
 # ==============================================================================
+# (NENHUMA MUDANÇA NECESSÁRIA NESTA SEÇÃO)
+
 def parse_signal(signal_text):
     """Converte um sinal de texto em um dicionário estruturado e validado."""
     logger.info(f"Parseando sinal bruto: '{signal_text}'")
@@ -214,7 +247,7 @@ def process_signals(signals):
                 positions_to_close_count += 1
                 logger.warning(f"  -> DECISÃO: FECHAR {pos_ticker}. MOTIVO: Posição não faz parte dos sinais de hoje.")
 
-                market_price = client.get_market_bbo_price(pos_ticker)
+                market_price = client.get_market_oracle_price(pos_ticker)
                 if not market_price:
                     logger.error(f"  -> FALHA: Não foi possível obter preço para fechar {pos_ticker}. Fechamento abortado para este ativo.")
                     continue
@@ -245,28 +278,35 @@ def process_signals(signals):
 
     try:
         account_balance = client.get_account_balance()
-        total_signals_for_allocation = len(parsed_signals)
+        # Conta para todos os sinais, incluindo os que já podem estar abertos, para não alocar margem em excesso
+        signals_to_consider = [s for s in parsed_signals if s['action'] in ["BUY", "SELL"]]
+        total_signals_for_allocation = len(signals_to_consider)
         margin_per_trade = 0
 
         if total_signals_for_allocation > 0:
             margin_per_trade = account_balance / total_signals_for_allocation
             logger.info("--- Início do Cálculo de Alocação de Margem ---")
             logger.info(f"  - Saldo Total Disponível: ${account_balance:.2f}")
-            logger.info(f"  - Número Total de Sinais Válidos: {total_signals_for_allocation}")
+            logger.info(f"  - Número de Sinais de Abertura: {total_signals_for_allocation}")
             logger.info(f"  - Cálculo: ${account_balance:.2f} / {total_signals_for_allocation} = ${margin_per_trade:.2f}")
             logger.info(f"  - Margem Base por Nova Operação: ${margin_per_trade:.2f}")
             logger.info("--- Fim do Cálculo de Alocação de Margem ---")
         else:
             logger.warning("Nenhum sinal válido para basear a alocação de margem. Novas posições não serão abertas.")
 
-        open_positions = client.get_open_positions()
-        used_subaccounts = {int(p.get('subaccountId', 0)) for p in open_positions}
-
+        open_positions_markets = [p['market'] for p in client.get_open_positions()]
+        used_subaccounts = {int(p.get('subaccountId', 0)) for p in client.get_open_positions()}
         next_available_subaccount = ISOLATED_MARGIN_SUBACCOUNT_START_ID
 
         logger.info(f"\nIniciando processamento de {len(new_trade_signals)} novas operações de COMPRA/VENDA...")
         for signal in new_trade_signals:
             ticker = signal['ticker']
+            market_id = f"{ticker}-USD"
+
+            if market_id in open_positions_markets:
+                logger.info(f"--- Posição para {ticker} já existe. Pulando abertura. ---")
+                continue
+
             logger.info(f"--- Processando sinal de ABERTURA para {ticker} ---")
 
             logger.info(f"  - Procurando subconta livre a partir de ID {next_available_subaccount} (usadas: {used_subaccounts})...")
@@ -277,7 +317,7 @@ def process_signals(signals):
             used_subaccounts.add(subaccount_id)
 
             leverage = LEVERAGE_CONFIG.get(ticker, LEVERAGE_CONFIG["DEFAULT"])
-            price = client.get_market_bbo_price(ticker)
+            price = client.get_market_oracle_price(ticker)
 
             if not price:
                 logger.error(f"  - FALHA: Não foi possível obter preço para {ticker}. Ordem abortada.")
@@ -304,11 +344,10 @@ def process_signals(signals):
 # ==============================================================================
 if __name__ == "__main__":
     try:
-        # CORREÇÃO: A string f-string foi colocada em uma única linha para evitar o SyntaxError.
         logger.info(f"Sinais brutos recebidos para o ciclo de execução: {SIGNALS_OF_THE_DAY}")
         process_signals(SIGNALS_OF_THE_DAY)
     except Exception as e:
         logger.critical(f"Ocorreu um erro fatal e inesperado no script principal: {e}", exc_info=True)
     finally:
-        logging.shutdown()  # Garante que todos os logs sejam escritos antes de fechar
+        logging.shutdown()
         print("Execução do robô finalizada. Verifique 'trading_bot.log' para detalhes.")
