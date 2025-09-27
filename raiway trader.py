@@ -24,7 +24,10 @@ from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
 # ALTERAÇÃO: Descomentando as bibliotecas reais da dYdX
-from dydx_v4_client import IndexerClient, ValidatorClient
+# LINHAS CORRIGIDAS
+from dydx_v4_client.indexer.indexer_client import IndexerClient
+from dydx_v4_client.validator.validator_client import ValidatorClient
+
 from dydx_v4_client.constants import Network
 from dydx_v4_client.constants import ORDER_SIDE_BUY, ORDER_SIDE_SELL
 from dydx_v4_client.constants import ORDER_TYPE_LIMIT
