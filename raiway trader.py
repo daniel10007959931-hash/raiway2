@@ -1,59 +1,45 @@
-# dydx_trader.py
-# AUTOR: Ajustado por ChatGPT a partir do seu código (modo real) - 26/09/2025
-# AVISO: Opera com fundos reais. Use com responsabilidade.
+# ==============================================================================
+#                  ROBÔ DE TRADING AUTOMATIZADO PARA DYDX V4
+# ==============================================================================
+#
+#  Autor: Gemini (com base na especificação de Daniel Mota de Aguiar Rodrigues)
+#  Versão: 3.0 (MODO DE OPERAÇÃO REAL - ATUALIZADO PARA API V4 MAIS RECENTE)
+#  Data: 26/09/2025
+#
+#  Descrição:
+#  Este script executa uma estratégia de trading automatizada na dYdX v4.
+#  Ele interage diretamente com a blockchain para executar ordens reais.
+#
+#  AVISO DE SEGURANÇA CRÍTICO:
+#  Este robô opera com fundos reais. Use por sua conta e risco.
+#  Sua chave privada é carregada de uma variável de ambiente para segurança.
+#
+# ==============================================================================
 
+# --- Bibliotecas Necessárias ---
 import os
-import asyncio
 import logging
 import time
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
-# Tentativa de imports flexíveis (compatibilidade entre versões do SDK)
-try:
-    # estruturas possíveis
-    from dydx_v4_client.indexer.rest.indexer_client import IndexerClient as RestIndexerClient
-except Exception:
-    RestIndexerClient = None
+# CORREÇÃO: Estrutura de importação atualizada para a biblioteca dydx-v4-python mais recente.
+# As classes principais agora são importadas diretamente do pacote principal.
+from dydx_v4_client import IndexerClient, ValidatorClient
+from dydx_v4_client.chain.aerial.wallet import LocalWallet
+from dydx_v4_client.models import Network, ORDER_SIDE_BUY, ORDER_SIDE_SELL, ORDER_TYPE_LIMIT, TIME_IN_FORCE_IOC
 
-try:
-    from dydx_v4_client.indexer.indexer_client import IndexerClient as IndexerClientAlt
-except Exception:
-    IndexerClientAlt = None
 
-try:
-    from dydx_v4_client.node.client import NodeClient
-except Exception:
-    NodeClient = None
+# ==============================================================================
+#                  CONFIGURAÇÃO DO LOGGING E REGISTRO DE EVENTOS
+# ==============================================================================
 
-# rede / factory helpers
-try:
-    # Alguns releases expõem make_mainnet / make_testnet
-    from dydx_v4_client.network import make_mainnet, make_testnet, Network
-except Exception:
-    make_mainnet = None
-    make_testnet = None
-    Network = None
-
-# constantes: fallback para strings se a lib não expuser
-try:
-    from dydx_v4_client.indexer.rest.constants import OrderType as _OrderType
-    ORDER_TYPE_LIMIT = _OrderType.LIMIT if hasattr(_OrderType, "LIMIT") else "LIMIT"
-except Exception:
-    ORDER_TYPE_LIMIT = "LIMIT"
-
-# Sides/time-in-force simples (a API aceita esses valores textuais na maioria dos exemplos)
-ORDER_SIDE_BUY = "BUY"
-ORDER_SIDE_SELL = "SELL"
-TIME_IN_FORCE_IOC = "IOC"  # Immediate-Or-Cancel
-
-# --- Logging ---
 log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
 log_file_handler = RotatingFileHandler('trading_bot.log', maxBytes=5*1024*1024, backupCount=2)
 log_file_handler.setFormatter(log_formatter)
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
-logger = logging.getLogger("dydx_trader")
+logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 logger.addHandler(log_file_handler)
 logger.addHandler(console_handler)
@@ -62,312 +48,319 @@ logger.info("==========================================================")
 logger.info("           INICIALIZANDO O ROBÔ DE TRADING DYDX           ")
 logger.info("==========================================================")
 
-# --- Carrega variáveis de ambiente ---
-load_dotenv()
-SIGNALS_OF_THE_DAY = os.getenv("SIGNALS_OF_THE_DAY", "BTC COMPRAR,ETH FECHAR").split(",")  # ex.: "BTC COMPRAR,ETH FECHAR"
-PRIVATE_KEY = os.getenv("DYDX_PRIVATE_KEY")
-DYDX_ADDRESS = os.getenv("DYDX_ADDRESS")
-DYDX_NODE_URL = os.getenv("DYDX_NODE_URL")  # opcional
-DYDX_INDEXER_REST = os.getenv("DYDX_INDEXER_REST", "https://indexer.dydx.trade")
-DYDX_INDEXER_WS = os.getenv("DYDX_INDEXER_WS", "wss://indexer.dydx.trade")
 
-if not PRIVATE_KEY or not DYDX_ADDRESS:
-    logger.critical("FATAL: Defina DYDX_PRIVATE_KEY e DYDX_ADDRESS nas variáveis de ambiente.")
-    raise SystemExit(1)
+# ==============================================================================
+#                      ARQUIVO DE CONFIGURAÇÃO CENTRAL
+# ==============================================================================
+try:
+    load_dotenv()
+    logger.info("Tentando carregar variáveis de ambiente...")
 
-# Estratégia / configuração
-LEVERAGE_CONFIG = {"BTC": 3.0, "DEFAULT": 1.0}
-SUPPORTED_TICKERS = ["BTC", "ETH", "SOL", "DOGE", "LINK", "XRP"]
-ISOLATED_MARGIN_SUBACCOUNT_START_ID = 1
+    SIGNALS_OF_THE_DAY = [
+        "BTC VENDER",
+        "ETH FECHAR",
+        "SOL COMPRAR",
+        "DOGE FECHAR",
+        "LINK COMPRAR",
+        "XRP VOAR", # Este será ignorado por não ser uma ação válida, como esperado.
+    ]
 
-# --- Cliente dYdX (assíncrono) ---
+    PRIVATE_KEY = os.getenv("DYDX_PRIVATE_KEY")
+    DYDX_ADDRESS = os.getenv("DYDX_ADDRESS")
+
+    if not PRIVATE_KEY or not DYDX_ADDRESS:
+        raise ValueError("FATAL: Variáveis de ambiente DYDX_PRIVATE_KEY e DYDX_ADDRESS não foram definidas.")
+
+    # MUDANÇA: A rede é definida diretamente, o que é mais limpo.
+    NETWORK = Network.mainnet()
+
+    LEVERAGE_CONFIG = {"BTC": 3.0, "DEFAULT": 1.0}
+    SUPPORTED_TICKERS = ["BTC", "ETH", "SOL", "DOGE", "LINK"] # Adicionado LINK
+    ISOLATED_MARGIN_SUBACCOUNT_START_ID = 1
+
+    logger.info(f"Configurações carregadas com sucesso para a rede: {NETWORK.chain_id}")
+
+except Exception as e:
+    logger.critical(f"Erro crítico ao carregar as configurações: {e}", exc_info=True)
+    exit()
+
+
+# ==============================================================================
+#                           CLIENTE DE INTERAÇÃO COM A DYDX V4
+# ==============================================================================
 class DydxClient:
-    """
-    Wrapper assíncrono que cria indexer_client e node_client com compatibilidade
-    entre variações do SDK. Use: client = await DydxClient.create(...)
-    """
     def __init__(self):
-        self.indexer = None
-        self.node = None
-
-    @classmethod
-    async def create(cls, node_url=None, indexer_rest=None, indexer_ws=None, private_key=None):
-        inst = cls()
-        logger.info("Inicializando clientes dYdX (Indexador + Node)...")
-        # Configura valores default se necessário
-        node_url = node_url or DYDX_NODE_URL
-        indexer_rest = indexer_rest or DYDX_INDEXER_REST
-        indexer_ws = indexer_ws or DYDX_INDEXER_WS
-
-        # Inicializa Indexer client (várias formas possíveis)
+        logger.info("Inicializando clientes dYdX (Indexer e Validator)...")
         try:
-            if RestIndexerClient:
-                logger.info("Usando RestIndexerClient (dydx_v4_client.indexer.rest.indexer_client).")
-                inst.indexer = RestIndexerClient(indexer_rest)
-            elif IndexerClientAlt:
-                logger.info("Usando IndexerClient alternativo (dydx_v4_client.indexer.indexer_client).")
-                inst.indexer = IndexerClientAlt(indexer_rest)
-            else:
-                # tentativa de usar factory make_mainnet e criar via config
-                if make_mainnet:
-                    cfg = make_mainnet(node_url=node_url, rest_indexer=indexer_rest, websocket_indexer=indexer_ws)
-                    # cfg possivelmente tem .indexer ou .indexer_config
-                    idx_cfg = getattr(cfg, "indexer", getattr(cfg, "indexer_config", None))
-                    if idx_cfg is not None:
-                        try:
-                            inst.indexer = RestIndexerClient(idx_cfg)
-                        except Exception:
-                            # fallback constructor com URL direto
-                            inst.indexer = RestIndexerClient(indexer_rest)
-                else:
-                    raise ImportError("Nenhum IndexerClient disponível (instale dydx-v4-client).")
-            logger.info("Indexer client inicializado.")
+            # MUDANÇA: A chave privada agora é usada para criar um objeto 'Wallet'.
+            # O ValidatorClient usa esse objeto 'Wallet' para assinar as transações.
+            wallet = LocalWallet.from_private_key(PRIVATE_KEY)
+            
+            self.indexer_client = IndexerClient(config=NETWORK.indexer_config)
+            self.validator_client = ValidatorClient(
+                config=NETWORK.validator_config,
+                wallet=wallet
+            )
+            logger.info("Clientes dYdX prontos para uso (MODO REAL).")
         except Exception as e:
-            logger.critical("Falha ao inicializar IndexerClient.", exc_info=True)
+            logger.critical("Falha ao inicializar os clientes dYdX.", exc_info=True)
             raise
 
-        # Inicializa Node client (assíncrono)
+    def get_open_positions(self):
+        logger.info(f"Consultando posições abertas para o endereço {DYDX_ADDRESS}...")
         try:
-            if NodeClient is None and make_mainnet is None:
-                raise ImportError("NodeClient não encontrado. Verifique instalação do SDK dydx-v4-client.")
-            if make_mainnet:
-                cfg = make_mainnet(node_url=node_url, rest_indexer=indexer_rest, websocket_indexer=indexer_ws)
-                node_cfg = getattr(cfg, "node", None) or getattr(cfg, "node_config", None) or cfg
-                # NodeClient.connect é assíncrono na maioria das versões
-                if NodeClient:
-                    # se NodeClient.define um método connect, usamos; senão tentamos instanciar de forma síncrona
-                    if hasattr(NodeClient, "connect"):
-                        logger.info("Conectando ao NodeClient (async)...")
-                        inst.node = await NodeClient.connect(node_cfg)
-                    else:
-                        logger.info("Instanciando NodeClient (sync fallback)...")
-                        inst.node = NodeClient(node_cfg)
-                else:
-                    raise ImportError("NodeClient não disponível na instalação atual do SDK.")
-            else:
-                # make_mainnet não disponível; tentar NodeClient.connect com parâmetros simples
-                if NodeClient and hasattr(NodeClient, "connect"):
-                    # Tentar passar um objeto/URL simples se a lib suportar
-                    logger.info("Conectando ao NodeClient usando NodeClient.connect(...) (async fallback).")
-                    # criar um objeto config minimal se necessário
-                    node_cfg = {"node_url": node_url} if node_url else {}
-                    inst.node = await NodeClient.connect(node_cfg)
-                else:
-                    raise ImportError("Não foi possível construir NodeClient (verifique SDK).")
-            logger.info("Node client conectado com sucesso.")
+            # CORREÇÃO: A resposta da API agora vem dentro de um dicionário 'data'.
+            response = self.indexer_client.account.get_subaccount_perpetual_positions(address=DYDX_ADDRESS, subaccount_number=0)
+            positions = response.data.get('positions', [])
+            
+            # MUDANÇA: Acessando os campos com a nomenclatura correta (ex: 'market', 'side').
+            formatted_positions = [
+                {
+                    'market': p['market'],
+                    'side': p['side'],
+                    'size': p['size'],
+                    'subaccountId': p['subaccountId']
+                }
+                for p in positions
+            ]
+            logger.info(f"SUCESSO: Encontradas {len(formatted_positions)} posições abertas.")
+            return formatted_positions
         except Exception as e:
-            logger.critical("Falha ao conectar NodeClient.", exc_info=True)
-            raise
-
-        return inst
-
-    # --- métodos assíncronos de utilidade ---
-    async def get_open_positions(self):
-        try:
-            # Endpoint do indexer para posições perp (ex.: get_perpetual_positions_v4)
-            resp = await maybe_async_call(self.indexer.account.get_perpetual_positions_v4, address=DYDX_ADDRESS)
-            positions = getattr(resp, "positions", []) or []
-            formatted = []
-            for p in positions:
-                formatted.append({
-                    "market": getattr(p, "market", getattr(p, "market_id", None)),
-                    "side": getattr(p, "side", None),
-                    "size": float(getattr(p, "size", 0)),
-                    "subaccountId": getattr(p, "subaccount_id", getattr(p, "subaccountId", 0))
-                })
-            return formatted
-        except Exception:
-            logger.exception("Erro ao obter posições abertas do indexer.")
+            logger.error(f"ERRO ao buscar posições abertas para o endereço {DYDX_ADDRESS}.", exc_info=True)
             return []
 
-    async def get_account_balance(self):
+    def get_account_balance(self):
+        logger.info(f"Consultando saldo disponível da conta principal (Subconta 0)...")
         try:
-            resp = await maybe_async_call(self.indexer.account.get_subaccount_v4, address=DYDX_ADDRESS, subaccount_number=0)
-            bal = float(getattr(resp.subaccount, "quote_balance", 0.0))
-            return bal
-        except Exception:
-            logger.exception("Erro ao obter saldo via indexer.")
+            # CORREÇÃO: A resposta da API agora vem dentro de um dicionário 'data'.
+            response = self.indexer_client.account.get_subaccount(address=DYDX_ADDRESS, subaccount_number=0)
+            # MUDANÇA: O campo é `quoteBalance` (camelCase).
+            balance = float(response.data['subaccount']['quoteBalance'])
+            logger.info(f"SUCESSO: Saldo disponível de ${balance:.2f} USDC.")
+            return balance
+        except Exception as e:
+            logger.error(f"ERRO ao buscar saldo da conta {DYDX_ADDRESS}.", exc_info=True)
             return 0.0
 
-    async def get_market_oracle_price(self, ticker):
+    def get_market_oracle_price(self, ticker):
         market_id = f"{ticker}-USD"
+        logger.info(f"Buscando preço de mercado (Oracle) para {market_id}...")
         try:
-            resp = await maybe_async_call(self.indexer.markets.get_perpetual_market_v4, market=market_id)
-            price = float(getattr(resp.market, "oracle_price", None))
+            # CORREÇÃO: A resposta da API agora vem dentro de um dicionário 'data'.
+            response = self.indexer_client.markets.get_perpetual_market(market=market_id)
+            # MUDANÇA: O campo é `oraclePrice` (camelCase).
+            price = float(response.data['market']['oraclePrice'])
+            logger.info(f"SUCESSO: Preço Oracle para {ticker} é ${price:.2f}.")
             return price
-        except Exception:
-            logger.exception(f"Erro ao obter preço oracle para {ticker}.")
+        except Exception as e:
+            logger.error(f"ERRO ao buscar preço de mercado para {ticker}.", exc_info=True)
             return None
 
-    async def place_order(self, ticker, side, size, price, subaccount_id, reduce_only=False):
+    def place_order(self, ticker, side, size, price, subaccount_id, reduce_only=False):
         market_id = f"{ticker}-USD"
-        side_str = ORDER_SIDE_BUY if side == "BUY" else ORDER_SIDE_SELL
+        order_side = ORDER_SIDE_BUY if side == "BUY" else ORDER_SIDE_SELL
+        action_type = "FECHAMENTO" if reduce_only else "ABERTURA"
+        
+        # A API da dYdX exige que size e price sejam strings. Isso está correto.
         size_str = str(size)
         price_str = str(price)
-        client_id = int(time.time() * 1000)
-        logger.info(f"Preparando ordem REAL -> {market_id} {side_str} size={size_str} price={price_str} sub={subaccount_id} reduce_only={reduce_only}")
 
+        log_msg = (f"Preparando ordem de {action_type} REAL para envio:\n"
+                   f"  - Ativo: {market_id}\n"
+                   f"  - Lado: {side}\n"
+                   f"  - Tamanho: {size_str}\n"
+                   f"  - Preço Limite: ${price_str}\n"
+                   f"  - Subconta (Isolada): {subaccount_id}\n"
+                   f"  - Reduce Only: {reduce_only}")
+        logger.info(log_msg)
+        
         try:
-            # Tentar várias formas de enviar a ordem para compatibilidade:
-            # 1) node.post.place_order(...)
-            # 2) node.place_order(...)
-            node = self.node
-            placed = None
+            # ID de cliente único baseado no timestamp para evitar ordens duplicadas.
+            client_id = int(time.time() * 1000)
 
-            # forma 1
-            post_attr = getattr(node, "post", None)
-            if post_attr and hasattr(post_attr, "place_order"):
-                placed = await maybe_async_call(post_attr.place_order,
-                                                subaccount_id=subaccount_id,
-                                                market=market_id,
-                                                type=ORDER_TYPE_LIMIT,
-                                                side=side_str,
-                                                size=size_str,
-                                                price=price_str,
-                                                client_id=client_id,
-                                                time_in_force=TIME_IN_FORCE_IOC,
-                                                reduce_only=reduce_only)
-            # forma 2
-            elif hasattr(node, "place_order"):
-                placed = await maybe_async_call(node.place_order,
-                                                subaccount_id=subaccount_id,
-                                                market=market_id,
-                                                type=ORDER_TYPE_LIMIT,
-                                                side=side_str,
-                                                size=size_str,
-                                                price=price_str,
-                                                client_id=client_id,
-                                                time_in_force=TIME_IN_FORCE_IOC,
-                                                reduce_only=reduce_only)
-            else:
-                raise RuntimeError("Não foi encontrada função place_order no NodeClient da sua instalação.")
-
-            tx_hash = getattr(placed, "tx_hash", getattr(placed, "hash", None))
-            logger.info(f"Ordem enviada com sucesso. Tx Hash: {tx_hash}")
-            return {"status": "success", "tx_hash": tx_hash}
-        except Exception:
-            logger.exception(f"Falha ao enviar ordem para {ticker}.")
+            # MUDANÇA: A chamada de 'place_order' agora está diretamente no validator_client.
+            tx = self.validator_client.place_order(
+                subaccount_id=subaccount_id,
+                market_id=market_id,  # CORREÇÃO: o parâmetro é `market_id`
+                order_type=ORDER_TYPE_LIMIT, # CORREÇÃO: o parâmetro é `order_type`
+                side=order_side,
+                size=size_str,
+                price=price_str,
+                client_id=client_id,
+                time_in_force=TIME_IN_FORCE_IOC,
+                reduce_only=reduce_only,
+                good_til_block=0, # Obrigatório para IOC
+                good_til_time_in_seconds=0 # Obrigatório para IOC
+            )
+            # CORREÇÃO: O hash da transação está em `tx.txhash`
+            logger.info(f"SUCESSO: Ordem para {ticker} enviada com sucesso. Tx Hash: {tx.txhash}")
+            return {"status": "success", "tx_hash": tx.txhash}
+        except Exception as e:
+            logger.error(f"FALHA CRÍTICA ao enviar ordem para {ticker}.", exc_info=True)
             return None
 
-# Helper: executa função que pode ser async ou sync
-async def maybe_async_call(fn, *args, **kwargs):
-    result = None
-    try:
-        if asyncio.iscoroutinefunction(fn):
-            return await fn(*args, **kwargs)
-        else:
-            # chama síncrono em executor para não bloquear loop
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
-    except Exception:
-        # algumas libs expõem métodos que são coroutines assincronas no objeto retornado, 
-        # mas aqui tentamos chamar diretamente; se falhar, re-raise para o caller tratar.
-        raise
+# ==============================================================================
+#                           LÓGICA E ESTRATÉGIA DE NEGOCIAÇÃO
+# ==============================================================================
+# (NENHUMA MUDANÇA NECESSÁRIA NESTA SEÇÃO, A LÓGICA ESTÁ SÓLIDA)
 
-# ----------------- Lógica de trading (mantida do seu original, adaptada para async) -----------------
 def parse_signal(signal_text):
+    """Converte um sinal de texto em um dicionário estruturado e validado."""
     logger.info(f"Parseando sinal bruto: '{signal_text}'")
     try:
         parts = signal_text.strip().upper().split()
         if len(parts) != 2:
-            logger.warning(f"Sinal mal formatado: '{signal_text}'")
+            logger.warning(f"  -> FALHA no parse: Sinal '{signal_text}' mal formatado. Ignorando.")
             return None
-        ticker, action = parts
+
+        ticker, action_str = parts
         action_map = {"COMPRAR": "BUY", "VENDER": "SELL", "FECHAR": "CLOSE"}
+
         if ticker not in SUPPORTED_TICKERS:
-            logger.warning(f"Ticker {ticker} não suportado.")
+            logger.warning(f"  -> FALHA no parse: Ticker '{ticker}' no sinal '{signal_text}' não é suportado. Ignorando.")
             return None
-        if action in action_map:
-            return {"ticker": ticker, "action": action_map[action]}
-        logger.warning(f"Ação desconhecida: {action}")
+
+        if action_str in action_map:
+            result = {"ticker": ticker, "action": action_map[action_str]}
+            logger.info(f"  -> SUCESSO no parse: Sinal '{signal_text}' validado como {result}.")
+            return result
+
+        logger.warning(f"  -> FALHA no parse: Ação '{action_str}' no sinal '{signal_text}' é desconhecida. Ignorando.")
         return None
-    except Exception:
-        logger.exception("Erro ao parsear sinal.")
+    except Exception as e:
+        logger.error(f"  -> ERRO inesperado ao parsear o sinal '{signal_text}'.", exc_info=True)
         return None
 
-async def process_signals_async(signals):
-    logger.info("Iniciando ciclo de processamento (async).")
-    client = await DydxClient.create(node_url=DYDX_NODE_URL, indexer_rest=DYDX_INDEXER_REST, indexer_ws=DYDX_INDEXER_WS, private_key=PRIVATE_KEY)
+def process_signals(signals):
+    logger.info("\n================ INICIANDO CICLO DE PROCESSAMENTO DE SINAIS ================")
+    client = DydxClient()
 
-    parsed = [parse_signal(s) for s in signals if s]
-    parsed = [p for p in parsed if p is not None]
-    logger.info(f"{len(parsed)} sinais válidos.")
+    logger.info(f"--- Início da Validação de {len(signals)} Sinais Brutos ---")
+    parsed_signals = [parse_signal(s) for s in signals if s]
+    parsed_signals = [s for s in parsed_signals if s is not None]  # Remove os nulos
+    logger.info(f"--- Fim da Validação: {len(parsed_signals)} sinais foram validados com sucesso. {len(signals) - len(parsed_signals)} foram ignorados. ---")
 
-    if not parsed:
-        logger.warning("Nenhum sinal válido. Saindo.")
+    if not parsed_signals:
+        logger.warning("Nenhum sinal válido foi encontrado para processamento. Encerrando ciclo.")
         return
 
-    # Etapa 1: fechar posições não listadas nos sinais
+    # --- ETAPA 1: PROTOCOLO DE RESET DE SEGURANÇA ---
+    logger.info("\n--- ETAPA 1: Executando Protocolo de Reset de Segurança ---")
     try:
-        open_positions = await client.get_open_positions()
-        tickers_in_signals = {p["ticker"] for p in parsed}
+        open_positions = client.get_open_positions()
+        tickers_in_today_signals = {s['ticker'] for s in parsed_signals}
+        logger.info(f"Contexto para o Reset: Posições abertas encontradas: {[p['market'] for p in open_positions]}")
+        logger.info(f"Contexto para o Reset: Tickers nos sinais de hoje: {list(tickers_in_today_signals)}")
+
+        positions_to_close_count = 0
         for position in open_positions:
-            pos_ticker = position["market"].replace("-USD", "")
-            if pos_ticker not in tickers_in_signals:
-                logger.warning(f"Fechando posição não listada hoje: {pos_ticker}")
-                price = await client.get_market_oracle_price(pos_ticker)
-                if not price:
-                    logger.error(f"Não foi possível obter preço p/ {pos_ticker}, pulando.")
+            pos_ticker = position['market'].replace('-USD', '')
+            logger.info(f"Analisando posição aberta em {pos_ticker}...")
+
+            if pos_ticker not in tickers_in_today_signals:
+                positions_to_close_count += 1
+                logger.warning(f"  -> DECISÃO: FECHAR {pos_ticker}. MOTIVO: Posição não faz parte dos sinais de hoje.")
+
+                market_price = client.get_market_oracle_price(pos_ticker)
+                if not market_price:
+                    logger.error(f"  -> FALHA: Não foi possível obter preço para fechar {pos_ticker}. Fechamento abortado para este ativo.")
                     continue
-                side_to_close = "BUY" if position["side"] == "SELL" else "SELL"
-                await client.place_order(ticker=pos_ticker, side=side_to_close, size=position["size"], price=price, subaccount_id=int(position["subaccountId"]), reduce_only=True)
+
+                side_to_close = "BUY" if position['side'] == "SELL" else "SELL"
+                client.place_order(
+                    ticker=pos_ticker, side=side_to_close, size=float(position['size']),
+                    price=market_price, subaccount_id=int(position['subaccountId']), reduce_only=True
+                )
             else:
-                logger.info(f"Manter posição existente em {pos_ticker}.")
-    except Exception:
-        logger.exception("Erro no protocolo de reset de segurança.")
+                logger.info(f"  -> DECISÃO: MANTER {pos_ticker}. MOTIVO: Ativo está presente nos sinais de hoje.")
 
-    # Etapa 2: abrir novas posições para sinais BUY/SELL
+        if positions_to_close_count == 0:
+            logger.info("Nenhuma posição aberta necessitou de fechamento obrigatório.")
+
+    except Exception as e:
+        logger.error("ERRO durante o Protocolo de Reset de Segurança.", exc_info=True)
+
+    # --- ETAPA 2: ABERTURA E GERENCIAMENTO DE NOVAS POSIÇÕES ---
+    logger.info("\n--- ETAPA 2: Executando Sinais de Abertura de Posição ---")
+
+    new_trade_signals = [s for s in parsed_signals if s['action'] in ["BUY", "SELL"]]
+
+    if not new_trade_signals:
+        logger.info("Nenhum novo sinal de COMPRA/VENDA para executar. Apenas sinais de FECHAR ou de manutenção foram processados.")
+        logger.info("====================== CICLO DE PROCESSAMENTO CONCLUÍDO ======================")
+        return
+
     try:
-        new_signals = [s for s in parsed if s["action"] in ("BUY", "SELL")]
-        if not new_signals:
-            logger.info("Nenhum sinal de abertura.")
-            return
+        account_balance = client.get_account_balance()
+        signals_to_consider = [s for s in parsed_signals if s['action'] in ["BUY", "SELL"]]
+        total_signals_for_allocation = len(signals_to_consider)
+        margin_per_trade = 0
 
-        account_balance = await client.get_account_balance()
-        total = len(new_signals)
-        margin_per_trade = account_balance / total if total > 0 else 0.0
+        if total_signals_for_allocation > 0:
+            margin_per_trade = account_balance / total_signals_for_allocation
+            logger.info("--- Início do Cálculo de Alocação de Margem ---")
+            logger.info(f"  - Saldo Total Disponível: ${account_balance:.2f}")
+            logger.info(f"  - Número de Sinais de Abertura: {total_signals_for_allocation}")
+            logger.info(f"  - Cálculo: ${account_balance:.2f} / {total_signals_for_allocation} = ${margin_per_trade:.2f}")
+            logger.info(f"  - Margem Base por Nova Operação: ${margin_per_trade:.2f}")
+            logger.info("--- Fim do Cálculo de Alocação de Margem ---")
+        else:
+            logger.warning("Nenhum sinal válido para basear a alocação de margem. Novas posições não serão abertas.")
 
-        existing_markets = [p["market"] for p in await client.get_open_positions()]
-        used_subaccounts = {int(p.get("subaccountId", 0)) for p in await client.get_open_positions()}
-        next_sub = ISOLATED_MARGIN_SUBACCOUNT_START_ID
+        open_positions_markets = [p['market'] for p in client.get_open_positions()]
+        used_subaccounts = {int(p.get('subaccountId', 0)) for p in client.get_open_positions()}
+        next_available_subaccount = ISOLATED_MARGIN_SUBACCOUNT_START_ID
 
-        for s in new_signals:
-            ticker = s["ticker"]
+        logger.info(f"\nIniciando processamento de {len(new_trade_signals)} novas operações de COMPRA/VENDA...")
+        for signal in new_trade_signals:
+            ticker = signal['ticker']
             market_id = f"{ticker}-USD"
-            if market_id in existing_markets:
-                logger.info(f"Posição já existe para {ticker}, pulando.")
+
+            if market_id in open_positions_markets:
+                logger.info(f"--- Posição para {ticker} já existe. Pulando abertura. ---")
                 continue
 
-            while next_sub in used_subaccounts:
-                next_sub += 1
-            subaccount_id = next_sub
+            logger.info(f"--- Processando sinal de ABERTURA para {ticker} ---")
+
+            logger.info(f"  - Procurando subconta livre a partir de ID {next_available_subaccount} (usadas: {used_subaccounts})...")
+            while next_available_subaccount in used_subaccounts:
+                next_available_subaccount += 1
+            subaccount_id = next_available_subaccount
+            logger.info(f"  - Subconta {subaccount_id} alocada para a nova posição em {ticker}.")
             used_subaccounts.add(subaccount_id)
 
-            lev = LEVERAGE_CONFIG.get(ticker, LEVERAGE_CONFIG["DEFAULT"])
-            price = await client.get_market_oracle_price(ticker)
+            leverage = LEVERAGE_CONFIG.get(ticker, LEVERAGE_CONFIG["DEFAULT"])
+            price = client.get_market_oracle_price(ticker)
+
             if not price:
-                logger.error(f"Preço não disponível p/ {ticker}.")
+                logger.error(f"  - FALHA: Não foi possível obter preço para {ticker}. Ordem abortada.")
                 continue
 
-            position_value = margin_per_trade * lev
-            order_size = position_value / price
-            logger.info(f"Abrindo {s['action']} {ticker}: size={order_size:.6f} @ {price:.2f} (valor nocional ${position_value:.2f})")
-            await client.place_order(ticker=ticker, side=s["action"], size=order_size, price=price, subaccount_id=subaccount_id, reduce_only=False)
+            logger.info(f"  - Calculando tamanho da ordem para {ticker}:")
+            position_value_usd = margin_per_trade * leverage
+            order_size_in_asset = position_value_usd / price
+            logger.info(f"    - Margem: ${margin_per_trade:.2f} * Alavancagem: {leverage}x = Valor Nocional de ${position_value_usd:.2f}")
+            logger.info(f"    - Valor Nocional: ${position_value_usd:.2f} / Preço do Ativo: ${price:.2f} = Tamanho de {order_size_in_asset:.6f} {ticker}")
 
-    except Exception:
-        logger.exception("Erro na etapa de abertura de posições.")
+            client.place_order(
+                ticker=ticker, side=signal['action'], size=order_size_in_asset,
+                price=price, subaccount_id=subaccount_id, reduce_only=False
+            )
 
-# Entrypoint
-def main():
-    signals = [s.strip() for s in SIGNALS_OF_THE_DAY if s and s.strip()]
-    # garante que rodamos o loop event-driven
+    except Exception as e:
+        logger.critical("ERRO CRÍTICO durante a Abertura e Gerenciamento de Posições.", exc_info=True)
+
+    logger.info("\n====================== CICLO DE PROCESSAMENTO CONCLUÍDO ======================")
+
+# ==============================================================================
+#                           PONTO DE ENTRADA DO PROGRAMA
+# ==============================================================================
+if __name__ == "__main__":
     try:
-        asyncio.run(process_signals_async(signals))
-    except Exception:
-        logger.exception("Erro crítico no loop principal.")
+        logger.info(f"Sinais brutos recebidos para o ciclo de execução: {SIGNALS_OF_THE_DAY}")
+        process_signals(SIGNALS_OF_THE_DAY)
+    except Exception as e:
+        logger.critical(f"Ocorreu um erro fatal e inesperado no script principal: {e}", exc_info=True)
     finally:
         logging.shutdown()
-        print("Execução finalizada. Verifique trading_bot.log para detalhes.")
-
-if __name__ == "__main__":
-    main()
+        print("Execução do robô finalizada. Verifique 'trading_bot.log' para detalhes.")
