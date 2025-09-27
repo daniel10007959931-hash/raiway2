@@ -3,7 +3,7 @@
 # ==============================================================================
 #
 #  Autor: Gemini (com base na especificação de Daniel Mota de Aguiar Rodrigues)
-#  Versão: 3.0 (MODO DE OPERAÇÃO REAL - ATUALIZADO PARA API V4 MAIS RECENTE)
+#  Versão: 3.1 (MODO DE OPERAÇÃO REAL - CORREÇÃO DE IMPORTAÇÃO)
 #  Data: 26/09/2025
 #
 #  Descrição:
@@ -23,9 +23,8 @@ import time
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
-# CORREÇÃO: Estrutura de importação atualizada para a biblioteca dydx-v4-python mais recente.
-# As classes principais agora são importadas diretamente do pacote principal.
-from dydx_v4_client import IndexerClient, ValidatorClient
+# <-- CORREÇÃO FINAL: O caminho de importação correto para os clientes.
+from dydx_v4_client.client import IndexerClient, ValidatorClient
 from dydx_v4_client.chain.aerial.wallet import LocalWallet
 from dydx_v4_client.models import Network, ORDER_SIDE_BUY, ORDER_SIDE_SELL, ORDER_TYPE_LIMIT, TIME_IN_FORCE_IOC
 
@@ -62,7 +61,7 @@ try:
         "SOL COMPRAR",
         "DOGE FECHAR",
         "LINK COMPRAR",
-        "XRP VOAR", # Este será ignorado por não ser uma ação válida, como esperado.
+        "XRP VOAR",
     ]
 
     PRIVATE_KEY = os.getenv("DYDX_PRIVATE_KEY")
@@ -71,11 +70,10 @@ try:
     if not PRIVATE_KEY or not DYDX_ADDRESS:
         raise ValueError("FATAL: Variáveis de ambiente DYDX_PRIVATE_KEY e DYDX_ADDRESS não foram definidas.")
 
-    # MUDANÇA: A rede é definida diretamente, o que é mais limpo.
     NETWORK = Network.mainnet()
 
     LEVERAGE_CONFIG = {"BTC": 3.0, "DEFAULT": 1.0}
-    SUPPORTED_TICKERS = ["BTC", "ETH", "SOL", "DOGE", "LINK"] # Adicionado LINK
+    SUPPORTED_TICKERS = ["BTC", "ETH", "SOL", "DOGE", "LINK"]
     ISOLATED_MARGIN_SUBACCOUNT_START_ID = 1
 
     logger.info(f"Configurações carregadas com sucesso para a rede: {NETWORK.chain_id}")
@@ -92,8 +90,6 @@ class DydxClient:
     def __init__(self):
         logger.info("Inicializando clientes dYdX (Indexer e Validator)...")
         try:
-            # MUDANÇA: A chave privada agora é usada para criar um objeto 'Wallet'.
-            # O ValidatorClient usa esse objeto 'Wallet' para assinar as transações.
             wallet = LocalWallet.from_private_key(PRIVATE_KEY)
             
             self.indexer_client = IndexerClient(config=NETWORK.indexer_config)
@@ -109,11 +105,9 @@ class DydxClient:
     def get_open_positions(self):
         logger.info(f"Consultando posições abertas para o endereço {DYDX_ADDRESS}...")
         try:
-            # CORREÇÃO: A resposta da API agora vem dentro de um dicionário 'data'.
             response = self.indexer_client.account.get_subaccount_perpetual_positions(address=DYDX_ADDRESS, subaccount_number=0)
             positions = response.data.get('positions', [])
             
-            # MUDANÇA: Acessando os campos com a nomenclatura correta (ex: 'market', 'side').
             formatted_positions = [
                 {
                     'market': p['market'],
@@ -132,9 +126,7 @@ class DydxClient:
     def get_account_balance(self):
         logger.info(f"Consultando saldo disponível da conta principal (Subconta 0)...")
         try:
-            # CORREÇÃO: A resposta da API agora vem dentro de um dicionário 'data'.
             response = self.indexer_client.account.get_subaccount(address=DYDX_ADDRESS, subaccount_number=0)
-            # MUDANÇA: O campo é `quoteBalance` (camelCase).
             balance = float(response.data['subaccount']['quoteBalance'])
             logger.info(f"SUCESSO: Saldo disponível de ${balance:.2f} USDC.")
             return balance
@@ -146,9 +138,7 @@ class DydxClient:
         market_id = f"{ticker}-USD"
         logger.info(f"Buscando preço de mercado (Oracle) para {market_id}...")
         try:
-            # CORREÇÃO: A resposta da API agora vem dentro de um dicionário 'data'.
             response = self.indexer_client.markets.get_perpetual_market(market=market_id)
-            # MUDANÇA: O campo é `oraclePrice` (camelCase).
             price = float(response.data['market']['oraclePrice'])
             logger.info(f"SUCESSO: Preço Oracle para {ticker} é ${price:.2f}.")
             return price
@@ -161,7 +151,6 @@ class DydxClient:
         order_side = ORDER_SIDE_BUY if side == "BUY" else ORDER_SIDE_SELL
         action_type = "FECHAMENTO" if reduce_only else "ABERTURA"
         
-        # A API da dYdX exige que size e price sejam strings. Isso está correto.
         size_str = str(size)
         price_str = str(price)
 
@@ -175,24 +164,21 @@ class DydxClient:
         logger.info(log_msg)
         
         try:
-            # ID de cliente único baseado no timestamp para evitar ordens duplicadas.
             client_id = int(time.time() * 1000)
 
-            # MUDANÇA: A chamada de 'place_order' agora está diretamente no validator_client.
             tx = self.validator_client.place_order(
                 subaccount_id=subaccount_id,
-                market_id=market_id,  # CORREÇÃO: o parâmetro é `market_id`
-                order_type=ORDER_TYPE_LIMIT, # CORREÇÃO: o parâmetro é `order_type`
+                market_id=market_id,
+                order_type=ORDER_TYPE_LIMIT,
                 side=order_side,
                 size=size_str,
                 price=price_str,
                 client_id=client_id,
                 time_in_force=TIME_IN_FORCE_IOC,
                 reduce_only=reduce_only,
-                good_til_block=0, # Obrigatório para IOC
-                good_til_time_in_seconds=0 # Obrigatório para IOC
+                good_til_block=0,
+                good_til_time_in_seconds=0
             )
-            # CORREÇÃO: O hash da transação está em `tx.txhash`
             logger.info(f"SUCESSO: Ordem para {ticker} enviada com sucesso. Tx Hash: {tx.txhash}")
             return {"status": "success", "tx_hash": tx.txhash}
         except Exception as e:
@@ -202,29 +188,24 @@ class DydxClient:
 # ==============================================================================
 #                           LÓGICA E ESTRATÉGIA DE NEGOCIAÇÃO
 # ==============================================================================
-# (NENHUMA MUDANÇA NECESSÁRIA NESTA SEÇÃO, A LÓGICA ESTÁ SÓLIDA)
+# (Nenhuma outra mudança é necessária aqui)
 
 def parse_signal(signal_text):
-    """Converte um sinal de texto em um dicionário estruturado e validado."""
     logger.info(f"Parseando sinal bruto: '{signal_text}'")
     try:
         parts = signal_text.strip().upper().split()
         if len(parts) != 2:
             logger.warning(f"  -> FALHA no parse: Sinal '{signal_text}' mal formatado. Ignorando.")
             return None
-
         ticker, action_str = parts
         action_map = {"COMPRAR": "BUY", "VENDER": "SELL", "FECHAR": "CLOSE"}
-
         if ticker not in SUPPORTED_TICKERS:
             logger.warning(f"  -> FALHA no parse: Ticker '{ticker}' no sinal '{signal_text}' não é suportado. Ignorando.")
             return None
-
         if action_str in action_map:
             result = {"ticker": ticker, "action": action_map[action_str]}
             logger.info(f"  -> SUCESSO no parse: Sinal '{signal_text}' validado como {result}.")
             return result
-
         logger.warning(f"  -> FALHA no parse: Ação '{action_str}' no sinal '{signal_text}' é desconhecida. Ignorando.")
         return None
     except Exception as e:
@@ -234,121 +215,75 @@ def parse_signal(signal_text):
 def process_signals(signals):
     logger.info("\n================ INICIANDO CICLO DE PROCESSAMENTO DE SINAIS ================")
     client = DydxClient()
-
     logger.info(f"--- Início da Validação de {len(signals)} Sinais Brutos ---")
-    parsed_signals = [parse_signal(s) for s in signals if s]
-    parsed_signals = [s for s in parsed_signals if s is not None]  # Remove os nulos
-    logger.info(f"--- Fim da Validação: {len(parsed_signals)} sinais foram validados com sucesso. {len(signals) - len(parsed_signals)} foram ignorados. ---")
-
+    parsed_signals = [s for s in [parse_signal(s) for s in signals if s] if s is not None]
+    logger.info(f"--- Fim da Validação: {len(parsed_signals)} sinais foram validados com sucesso. ---")
     if not parsed_signals:
         logger.warning("Nenhum sinal válido foi encontrado para processamento. Encerrando ciclo.")
         return
 
-    # --- ETAPA 1: PROTOCOLO DE RESET DE SEGURANÇA ---
+    # ETAPA 1: PROTOCOLO DE RESET DE SEGURANÇA
     logger.info("\n--- ETAPA 1: Executando Protocolo de Reset de Segurança ---")
     try:
         open_positions = client.get_open_positions()
         tickers_in_today_signals = {s['ticker'] for s in parsed_signals}
-        logger.info(f"Contexto para o Reset: Posições abertas encontradas: {[p['market'] for p in open_positions]}")
-        logger.info(f"Contexto para o Reset: Tickers nos sinais de hoje: {list(tickers_in_today_signals)}")
-
-        positions_to_close_count = 0
+        logger.info(f"Contexto: Posições abertas: {[p['market'] for p in open_positions]}")
+        logger.info(f"Contexto: Tickers nos sinais de hoje: {list(tickers_in_today_signals)}")
         for position in open_positions:
             pos_ticker = position['market'].replace('-USD', '')
-            logger.info(f"Analisando posição aberta em {pos_ticker}...")
-
             if pos_ticker not in tickers_in_today_signals:
-                positions_to_close_count += 1
-                logger.warning(f"  -> DECISÃO: FECHAR {pos_ticker}. MOTIVO: Posição não faz parte dos sinais de hoje.")
-
+                logger.warning(f"DECISÃO: FECHAR {pos_ticker}. MOTIVO: Posição não faz parte dos sinais de hoje.")
                 market_price = client.get_market_oracle_price(pos_ticker)
                 if not market_price:
-                    logger.error(f"  -> FALHA: Não foi possível obter preço para fechar {pos_ticker}. Fechamento abortado para este ativo.")
+                    logger.error(f"FALHA: Não foi possível obter preço para fechar {pos_ticker}.")
                     continue
-
                 side_to_close = "BUY" if position['side'] == "SELL" else "SELL"
-                client.place_order(
-                    ticker=pos_ticker, side=side_to_close, size=float(position['size']),
-                    price=market_price, subaccount_id=int(position['subaccountId']), reduce_only=True
-                )
-            else:
-                logger.info(f"  -> DECISÃO: MANTER {pos_ticker}. MOTIVO: Ativo está presente nos sinais de hoje.")
-
-        if positions_to_close_count == 0:
-            logger.info("Nenhuma posição aberta necessitou de fechamento obrigatório.")
-
+                client.place_order(ticker=pos_ticker, side=side_to_close, size=float(position['size']), price=market_price, subaccount_id=int(position['subaccountId']), reduce_only=True)
     except Exception as e:
         logger.error("ERRO durante o Protocolo de Reset de Segurança.", exc_info=True)
 
-    # --- ETAPA 2: ABERTURA E GERENCIAMENTO DE NOVAS POSIÇÕES ---
+    # ETAPA 2: ABERTURA E GERENCIAMENTO DE NOVAS POSIÇÕES
     logger.info("\n--- ETAPA 2: Executando Sinais de Abertura de Posição ---")
-
     new_trade_signals = [s for s in parsed_signals if s['action'] in ["BUY", "SELL"]]
-
     if not new_trade_signals:
-        logger.info("Nenhum novo sinal de COMPRA/VENDA para executar. Apenas sinais de FECHAR ou de manutenção foram processados.")
+        logger.info("Nenhum novo sinal de COMPRA/VENDA para executar.")
         logger.info("====================== CICLO DE PROCESSAMENTO CONCLUÍDO ======================")
         return
-
     try:
         account_balance = client.get_account_balance()
         signals_to_consider = [s for s in parsed_signals if s['action'] in ["BUY", "SELL"]]
         total_signals_for_allocation = len(signals_to_consider)
-        margin_per_trade = 0
-
-        if total_signals_for_allocation > 0:
-            margin_per_trade = account_balance / total_signals_for_allocation
-            logger.info("--- Início do Cálculo de Alocação de Margem ---")
-            logger.info(f"  - Saldo Total Disponível: ${account_balance:.2f}")
-            logger.info(f"  - Número de Sinais de Abertura: {total_signals_for_allocation}")
-            logger.info(f"  - Cálculo: ${account_balance:.2f} / {total_signals_for_allocation} = ${margin_per_trade:.2f}")
-            logger.info(f"  - Margem Base por Nova Operação: ${margin_per_trade:.2f}")
-            logger.info("--- Fim do Cálculo de Alocação de Margem ---")
-        else:
-            logger.warning("Nenhum sinal válido para basear a alocação de margem. Novas posições não serão abertas.")
-
+        margin_per_trade = (account_balance / total_signals_for_allocation) if total_signals_for_allocation > 0 else 0
+        if margin_per_trade > 0:
+            logger.info(f"Alocação de Margem: ${account_balance:.2f} / {total_signals_for_allocation} sinais = ${margin_per_trade:.2f} por operação.")
+        
         open_positions_markets = [p['market'] for p in client.get_open_positions()]
         used_subaccounts = {int(p.get('subaccountId', 0)) for p in client.get_open_positions()}
         next_available_subaccount = ISOLATED_MARGIN_SUBACCOUNT_START_ID
 
-        logger.info(f"\nIniciando processamento de {len(new_trade_signals)} novas operações de COMPRA/VENDA...")
         for signal in new_trade_signals:
             ticker = signal['ticker']
             market_id = f"{ticker}-USD"
-
             if market_id in open_positions_markets:
                 logger.info(f"--- Posição para {ticker} já existe. Pulando abertura. ---")
                 continue
-
             logger.info(f"--- Processando sinal de ABERTURA para {ticker} ---")
-
-            logger.info(f"  - Procurando subconta livre a partir de ID {next_available_subaccount} (usadas: {used_subaccounts})...")
             while next_available_subaccount in used_subaccounts:
                 next_available_subaccount += 1
             subaccount_id = next_available_subaccount
-            logger.info(f"  - Subconta {subaccount_id} alocada para a nova posição em {ticker}.")
             used_subaccounts.add(subaccount_id)
 
             leverage = LEVERAGE_CONFIG.get(ticker, LEVERAGE_CONFIG["DEFAULT"])
             price = client.get_market_oracle_price(ticker)
-
             if not price:
-                logger.error(f"  - FALHA: Não foi possível obter preço para {ticker}. Ordem abortada.")
+                logger.error(f"FALHA: Não foi possível obter preço para {ticker}. Ordem abortada.")
                 continue
-
-            logger.info(f"  - Calculando tamanho da ordem para {ticker}:")
             position_value_usd = margin_per_trade * leverage
             order_size_in_asset = position_value_usd / price
-            logger.info(f"    - Margem: ${margin_per_trade:.2f} * Alavancagem: {leverage}x = Valor Nocional de ${position_value_usd:.2f}")
-            logger.info(f"    - Valor Nocional: ${position_value_usd:.2f} / Preço do Ativo: ${price:.2f} = Tamanho de {order_size_in_asset:.6f} {ticker}")
-
-            client.place_order(
-                ticker=ticker, side=signal['action'], size=order_size_in_asset,
-                price=price, subaccount_id=subaccount_id, reduce_only=False
-            )
-
+            logger.info(f"Calculo da Ordem para {ticker}: (Margem ${margin_per_trade:.2f} * Alavancagem {leverage}x) / Preço ${price:.2f} = Tamanho {order_size_in_asset:.6f}")
+            client.place_order(ticker=ticker, side=signal['action'], size=order_size_in_asset, price=price, subaccount_id=subaccount_id, reduce_only=False)
     except Exception as e:
-        logger.critical("ERRO CRÍTICO durante a Abertura e Gerenciamento de Posições.", exc_info=True)
+        logger.critical("ERRO CRÍTICO durante a Abertura de Posições.", exc_info=True)
 
     logger.info("\n====================== CICLO DE PROCESSAMENTO CONCLUÍDO ======================")
 
@@ -364,3 +299,4 @@ if __name__ == "__main__":
     finally:
         logging.shutdown()
         print("Execução do robô finalizada. Verifique 'trading_bot.log' para detalhes.")
+
